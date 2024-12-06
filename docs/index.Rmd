@@ -1,0 +1,358 @@
+---
+title: "Juvenile Yellowtail Snapper Selectivity on Zooplankton in Seagrass Species"
+author: "Gregory O'Neill"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Introduction
+
+This document demonstrates the analytical workflow for visualizing the selectivity of juvenile yellowtail snapper on zooplankton taxa. The analysis focuses on three seagrass species:  
+- *Halophila stipulacea* (*H. stipulacea*, abbreviated as HS)  
+- *Syringodium filiforme* (*S. filiforme*, abbreviated as SF)  
+- *Thalassia testudinum* (*T. testudinum*, abbreviated as TT).  
+
+The analysis includes data wrangling, cleaning, and creating visualizations to highlight patterns in diet and habitat use.
+
+
+
+# Step 1: Load Libraries and Import Data
+We need to load libraries that provide the functions required for data wrangling, visualization, and combining plots. Next, we import the dataset containing proportions and selectivity indices for zooplankton taxa.
+
+```{r load-libraries, message=FALSE}
+# Load necessary libraries
+library(tidyverse)
+library(ggtext)
+library(ggplot2)
+library(patchwork)
+
+# Import the dataset
+Ivlevs <- read.csv("C:/Users/900114440/Downloads/Ivlevs_indexies.csv")
+
+```
+
+# Step 2: Inspect the Data
+
+Before starting any analysis, it is important to understand the structure of the dataset. This step helps ensure that column names, data types, and values align with expectations.
+
+
+```{r}
+# Quick inspection of the dataset
+head(Ivlevs)
+str(Ivlevs)
+
+```
+
+We have The zooplankton Taxons, Size classes of juvenile fish (1-2 cm, 2-3 cm, 3-4 cm, and 4-5 cm), as well as the proportion of each zooplankton taxon found within the seagrass beds and stomachs of the juvenile fish.
+
+
+
+
+# Step 3: Convert Columns to Factors
+
+Now we must convert the columns into factors to help with grouping the data and improving plotting efficiency.
+
+```{r}
+# Convert categorical columns to factors
+Ivlevs$Seagrass <- as.factor(Ivlevs$Seagrass)
+Ivlevs$Size.Class <- as.factor(Ivlevs$Size.Class)
+
+```
+
+#Step 4: Reshape Data
+
+The dataset has proportions for diet and seagrass in separate columns. To facilitate plotting, we need to reshape the data into a long format where these values are stored in a single column, categorized by a new variable (Source).
+
+```{r}
+# Reshape data from wide to long format
+ivlevs_long <- pivot_longer(Ivlevs, 
+                            cols = c("Diet.Proportion", "Seagrass.Proportion"), 
+                            names_to = "Source", 
+                            values_to = "Proportion")
+
+# Simplify the Source column
+ivlevs_long$Source <- if_else(ivlevs_long$Source == "Diet.Proportion", "Diet", "Seagrass")
+
+```
+
+# Step 5: Clean and Enhance Data
+
+This step standardizes taxon names for better readability in plots and calculates the standard error (SE) for proportions, which will be displayed as error bars.
+
+```{r}
+# Standardize taxon names and calculate standard errors
+ivlevs_long <- ivlevs_long %>%
+  mutate(Taxon = recode(Taxon,
+                        "Fish_Larvae" = "Fish Larva",
+                        "Appendicularians" = "Appendicularia",
+                        "Decapod" = "Decapoda",
+                        "Ostracod" = "Ostracoda",
+                        "Amphipod" = "Amphipoda")) %>% 
+  mutate(SE = sqrt((Proportion * (1 - Proportion)) / 13))
+
+```
+
+#Step 6: Filter Data for Visualization:
+
+For visual clarity and focused analysis, we filter data for specific seagrass species (H. stipulacea) and size classes (1-2 cm, 2-3 cm, etc.). This helps in generating targeted plots.
+
+```{r}
+filtered_HS_1_2_data <- ivlevs_long %>%
+  filter(Seagrass == "H. stipulacea", Size.Class == "1-2")
+
+filtered_HS_2_3_data <- ivlevs_long %>%
+  filter(Seagrass == "H. stipulacea", Size.Class == "2-3")
+
+filtered_HS_3_4_data <- ivlevs_long %>%
+  filter(Seagrass == "H. stipulacea", Size.Class == "3-4")
+
+filtered_HS_4_5_data <- ivlevs_long %>%
+  filter(Seagrass == "H. stipulacea", Size.Class == "4-5")
+
+filtered_SF_1_2_data <- ivlevs_long %>%
+  filter(Seagrass == "S. filiforme", Size.Class == "1-2")
+
+filtered_SF_2_3_data <- ivlevs_long %>%
+  filter(Seagrass == "S. filiforme", Size.Class == "2-3")
+
+filtered_SF_3_4_data <- ivlevs_long %>%
+  filter(Seagrass == "S. filiforme", Size.Class == "3-4")
+
+filtered_SF_4_5_data <- ivlevs_long %>%
+  filter(Seagrass == "S. filiforme", Size.Class == "4-5")
+
+filtered_TT_1_2_data <- ivlevs_long %>%
+  filter(Seagrass == "T. testudinum", Size.Class == "1-2")
+
+filtered_TT_2_3_data <- ivlevs_long %>%
+  filter(Seagrass == "T. testudinum", Size.Class == "2-3")
+
+filtered_TT_3_4_data <- ivlevs_long %>%
+  filter(Seagrass == "T. testudinum", Size.Class == "3-4")
+
+filtered_TT_4_5_data <- ivlevs_long %>%
+  filter(Seagrass == "T. testudinum", Size.Class == "4-5")
+
+```
+
+#Step 7: Define Visualization Parameter
+
+To display the proportion of zooplankton and the index value we need to include a secondary y-axis. To include a secondary y-axis for selectivity indices (Index), we define the scaling parameters for proportionality between the two axes.
+
+```{r}
+# Define your y-axis limits and scaling parameters
+ylim.prim <- c(0, 1.0)   # Primary axis limits (Proportions)
+ylim.sec <- c(-1.0, 1.0)  # Secondary axis limits (Index)
+
+# Calculate scaling parameters
+b <- diff(ylim.prim) / diff(ylim.sec)  # Scaling factor
+a <- ylim.prim[1] - b * ylim.sec[1]    # Offset
+
+# Calculate the position for the horizontal line
+hline_position <- a  # This is the position on the primary axis corresponding to 0 on the secondary axis
+```
+
+
+#Step 8: Create a Custom Plot Function
+
+To avoid repetitive code for similar plots, we create a reusable function that generates plots for specific seagrass species and size classes. The function includes error bars for proportions and a secondary y-axis for selectivity indices.
+
+```{r}
+# Define a function to generate custom plots
+create_plot <- function(data, seagrass, size_class) {
+  ggplot(data %>% filter(Seagrass == seagrass, Size.Class == size_class), 
+         aes(x = Taxon, y = Proportion, fill = Source)) +
+    geom_bar(stat = "identity", position = "dodge", width = 0.85) +
+    geom_errorbar(aes(ymin = Proportion - SE, ymax = Proportion + SE),
+                  position = position_dodge(0.7), width = 0.3) +
+    geom_point(data = data %>% filter(Seagrass == seagrass, Size.Class == size_class),
+               aes(x = Taxon, y = Index * b + a, color = "Ivlev's Index"),
+               size = 4, shape = 21, fill = "black") +
+    scale_fill_manual(values = c("Diet" = "skyblue", "Seagrass" = "orange")) +
+    scale_color_manual(values = c("Ivlev's Index" = "black")) +
+    scale_y_continuous(
+      name = "Proportions",
+      limits = c(0, 1.0),
+      sec.axis = sec_axis(trans = ~ (. - a) / b, 
+                          name = "Ivlev's Index",
+                          breaks = seq(-1, 1, by = 0.5))
+    ) +
+    geom_hline(yintercept = a, linetype = "dashed", color = "black") +
+    labs(x = "Taxon", y = "Proportions", fill = NULL, color = NULL) +
+    theme_minimal() +
+    theme(
+      legend.position = "right",
+      axis.text.x = element_text(size = 13.5, angle = 35, hjust = 1),
+      axis.text.y = element_text(size = 10)
+    )
+}
+
+```
+
+#Step 9:Generate and Display the Combined Plots
+
+```{r}
+# Generate plots for each combination
+plot_HS_1_2 <- create_plot(filtered_HS_1_2_data, "H. stipulacea", "1-2")
+plot_HS_2_3 <- create_plot(filtered_HS_2_3_data, "H. stipulacea", "2-3")
+plot_HS_3_4 <- create_plot(filtered_HS_3_4_data, "H. stipulacea", "3-4")
+plot_HS_4_5 <- create_plot(filtered_HS_4_5_data, "H. stipulacea", "4-5")
+
+plot_SF_1_2 <- create_plot(filtered_SF_1_2_data, "S. filiforme", "1-2")
+plot_SF_2_3 <- create_plot(filtered_SF_2_3_data, "S. filiforme", "2-3")
+plot_SF_3_4 <- create_plot(filtered_SF_3_4_data, "S. filiforme", "3-4")
+plot_SF_4_5 <- create_plot(filtered_SF_4_5_data, "S. filiforme", "4-5")
+
+plot_TT_1_2 <- create_plot(filtered_TT_1_2_data, "T. testudinum", "1-2")
+plot_TT_2_3 <- create_plot(filtered_TT_2_3_data, "T. testudinum", "2-3")
+plot_TT_3_4 <- create_plot(filtered_TT_3_4_data, "T. testudinum", "3-4")
+plot_TT_4_5 <- create_plot(filtered_TT_4_5_data, "T. testudinum", "4-5")
+
+# Combine plots into layout
+
+plot_HS_1_2_custom <- plot_HS_1_2 +
+  theme(
+    axis.title.x = element_blank(),  
+    axis.text.x = element_blank(),    
+    axis.ticks.x = element_blank()    
+  )
+
+plot_SF_1_2_custom <- plot_SF_1_2 +
+  theme(
+    axis.title.x = element_blank(),  
+    axis.text.x = element_blank(),    
+    axis.ticks.x = element_blank()    
+  )
+
+plot_TT_1_2_custom <- plot_TT_1_2
+
+
+
+combined_plot_1_2 <- (plot_HS_1_2_custom / plot_SF_1_2_custom / plot_TT_1_2_custom) +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(guides = 'collect',axis_titles = "collect" , ncol = 1) &
+  theme(
+    legend.position = "right")
+
+plot_HS_1_2_custom <- plot_HS_1_2 +
+  theme(
+    axis.title.x = element_blank(),  
+    axis.text.x = element_blank(),    
+    axis.ticks.x = element_blank()    
+  )
+
+plot_SF_1_2_custom <- plot_SF_1_2 +
+  theme(
+    axis.title.x = element_blank(),  
+    axis.text.x = element_blank(),    
+    axis.ticks.x = element_blank()    
+  )
+
+plot_TT_1_2_custom <- plot_TT_1_2
+
+# Combine plots for 1-2
+combined_plot_1_2 <- (plot_HS_1_2_custom / plot_SF_1_2_custom / plot_TT_1_2_custom) +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(guides = 'collect', axis_titles = "collect", ncol = 1) &
+  theme(
+    legend.position = "right"
+  )
+
+# Custom plots for 2-3
+plot_HS_2_3_custom <- plot_HS_2_3 +
+  theme(
+    axis.title.x = element_blank(),  
+    axis.text.x = element_blank(),    
+    axis.ticks.x = element_blank()    
+  )
+
+plot_SF_2_3_custom <- plot_SF_2_3 +
+  theme(
+    axis.title.x = element_blank(),  
+    axis.text.x = element_blank(),    
+    axis.ticks.x = element_blank()    
+  )
+
+plot_TT_2_3_custom <- plot_TT_2_3
+
+# Combine plots for 2-3
+combined_plot_2_3 <- (plot_HS_2_3_custom / plot_SF_2_3_custom / plot_TT_2_3_custom) +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(guides = 'collect', axis_titles = "collect", ncol = 1) &
+  theme(
+    legend.position = "right"
+  )
+
+# Custom plots for 3-4
+plot_HS_3_4_custom <- plot_HS_3_4 +
+  theme(
+    axis.title.x = element_blank(),  
+    axis.text.x = element_blank(),    
+    axis.ticks.x = element_blank()    
+  )
+
+plot_SF_3_4_custom <- plot_SF_3_4 +
+  theme(
+    axis.title.x = element_blank(),  
+    axis.text.x = element_blank(),    
+    axis.ticks.x = element_blank()    
+  )
+
+plot_TT_3_4_custom <- plot_TT_3_4
+
+# Combine plots for 3-4
+combined_plot_3_4 <- (plot_HS_3_4_custom / plot_SF_3_4_custom / plot_TT_3_4_custom) +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(guides = 'collect', axis_titles = "collect", ncol = 1) &
+  theme(
+    legend.position = "right"
+  )
+
+# Custom plots for 4-5
+plot_HS_4_5_custom <- plot_HS_4_5 +
+  theme(
+    axis.title.x = element_blank(),  
+    axis.text.x = element_blank(),    
+    axis.ticks.x = element_blank()    
+  )
+
+plot_SF_4_5_custom <- plot_SF_4_5 +
+  theme(
+    axis.title.x = element_blank(),  
+    axis.text.x = element_blank(),    
+    axis.ticks.x = element_blank()    
+  )
+
+plot_TT_4_5_custom <- plot_TT_4_5
+
+# Combine plots for 4-5
+combined_plot_4_5 <- (plot_HS_4_5_custom / plot_SF_4_5_custom / plot_TT_4_5_custom) +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(guides = 'collect', axis_titles = "collect", ncol = 1) &
+  theme(
+    legend.position = "right"
+  )
+
+combined_plot_1_2
+```
+
+#Step 10: Pattern Recognition and Data Interpretation
+
+
+We see that juveniles in size class 1-2 cm have a positive index for harpacticoid copepods, isopods, and tanadidacea which means they are selecting for those prey items. This makes sense as previous literature shows that juvenile yellowtail snapper diet consists of copepods and tanaids during the beginning of the juvenile period. Some zooplankton taxa have a negative index indicating that this particular group is not being consumed by the juvenile fish. We can also see the slight difference of selectivity based on seagrass species (A = *H. stipulacea*, B = *S. filiforme*, and C = *T. testudinum*). These slight differences can be linked to the availability of certain zooplankton taxon in specific species of seagrass.
+
+
+```{r}
+# Print combined plots
+combined_plot_2_3
+combined_plot_3_4
+combined_plot_4_5
+```
+
+We also see that as juveniles get bigger their diet shifts, incorporating a larger diversity of zooplankton. This diet shift is common in juvenile yellowtail snapper and is called an ontogenetic dietary shift. This shift likely happens due to the increased metabolic costs of growth and increased mouth gap, allowing the consumption of larger more calorically dense zooplankton like amphipods and decapods. We can see that these patterns are similarly seen across seagrass species.
+
+#Conclusion
+This analysis demonstrates the workflow for visualizing selectivity indices of juvenile yellowtail snapper. The plots provide insights into diet preferences and in different species of seagrass, highlighting how species interact with their environment.
+
+
+
